@@ -1,0 +1,11 @@
+MEAL Lead -
+Minimum Requirements
+- Master's degree in monitoring, evaluation, social sciences, international development, or related field [pass=3] [weight=1.5]
+- At least 5 years of experience in project monitoring, evaluation, accountability and learning [pass=3] [weight=2]
+- Demonstrated experience designing results frameworks, indicators, baselines, and reporting tools
+- Strong written English and ability to produce donor-ready reports
+
+Preferred Requirements
+- Experience with participatory monitoring and evaluation methods
+- Experience working on donor-funded programmes in Africa
+- Experience using Power BI, Excel, Kobo, ODK, or similar data tools

@@ -1,0 +1,4 @@
+-r requirements.txt
+pdf2image>=1.17
+pytesseract>=0.3.13
+Pillow>=10.0
