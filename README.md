@@ -1,4 +1,4 @@
-# NIRAS CV Screener Improved App
+# N CV Screener App
 
 Runnable Streamlit app for reviewing batches of CVs against pasted role criteria. This version keeps the useful parts of the original desktop tool, but improves the review workflow and makes the final scoring easier to audit.
 
