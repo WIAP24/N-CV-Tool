@@ -2,7 +2,7 @@
 
 Runnable Streamlit app for reviewing batches of CVs against pasted role criteria. This version keeps the useful parts of the original desktop tool, but improves the review workflow and makes the final scoring easier to audit.
 
-## What is improved
+## Updates
 
 - Criteria are parsed into an editable table before screening.
 - The default model is `gpt-5.6-terra`, with model presets for `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6`, `gpt-4o-mini`, and custom model IDs.
