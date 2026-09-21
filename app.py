@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 import streamlit as st
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
@@ -50,11 +51,12 @@ def clean_previous_cloud_storage() -> bool:
     return remove_legacy_cloud_files(ROOT, Path(tempfile.gettempdir()))
 
 
-st.set_page_config(
-    page_title="NIRAS CV Screener",
-    page_icon="N",
-    layout="wide",
-)
+with Image.open(ROOT / "assets" / "niras_icon.ico") as favicon:
+    st.set_page_config(
+        page_title="NIRAS CV Screener",
+        page_icon=favicon,
+        layout="wide",
+    )
 
 
 def ensure_state() -> None:
