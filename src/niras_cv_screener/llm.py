@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, List
 
 from .criteria import criteria_to_rows
-from .model_config import PROMPT_VERSION, estimate_cost_usd, estimate_tokens
+from .model_config import PROMPT_VERSION, estimate_cost_usd, estimate_tokens, supports_reasoning_effort
 
 
 def assessment_schema() -> Dict[str, Any]:
@@ -110,7 +110,7 @@ def screen_cv_with_metadata(
             }
         },
     }
-    if reasoning_effort and reasoning_effort != "none" and str(model).startswith("gpt-5.6"):
+    if supports_reasoning_effort(model, reasoning_effort):
         request["reasoning"] = {"effort": reasoning_effort}
 
     response = create_response(client, request)
@@ -125,6 +125,7 @@ def screen_cv_with_metadata(
         usage["output_tokens"] = estimate_tokens(response.output_text or "")
         usage["token_source"] = usage.get("token_source", "estimated")
     usage.setdefault("cached_input_tokens", 0)
+    usage.setdefault("reasoning_output_tokens", 0)
     usage.setdefault("token_source", "api")
     usage["estimated_input_tokens"] = estimated_input_tokens
     usage["estimated_cost_usd"] = estimate_cost_usd(
@@ -182,10 +183,18 @@ def extract_usage(response: Any) -> Dict[str, Any]:
     if isinstance(details, dict):
         cached_input_tokens = int(details.get("cached_tokens") or details.get("cached_input_tokens") or 0)
     cached_input_tokens = int(data.get("cached_input_tokens") or cached_input_tokens or 0)
+    output_details = data.get("output_tokens_details") or data.get("completion_tokens_details") or {}
+    if hasattr(output_details, "model_dump"):
+        output_details = output_details.model_dump()
+    reasoning_output_tokens = 0
+    if isinstance(output_details, dict):
+        reasoning_output_tokens = int(output_details.get("reasoning_tokens") or output_details.get("reasoning_output_tokens") or 0)
+    reasoning_output_tokens = int(data.get("reasoning_output_tokens") or reasoning_output_tokens or 0)
     return {
         "input_tokens": int(input_tokens or 0),
         "cached_input_tokens": cached_input_tokens,
         "output_tokens": int(output_tokens or 0),
+        "reasoning_output_tokens": reasoning_output_tokens,
         "total_tokens": int(total_tokens or 0),
         "raw": data,
     }

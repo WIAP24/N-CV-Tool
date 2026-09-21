@@ -1,0 +1,29 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# App-generated outputs and caches
+outputs/
+.cv_screener_cache/
+*.xlsx
+*.xls
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

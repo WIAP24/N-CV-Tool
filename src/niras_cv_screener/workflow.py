@@ -95,7 +95,7 @@ def process_paths(
             }
             scored["compliance_flags"] = scan_compliance_flags(extraction.text, path.name)
 
-            if enable_model_comparison and comparison_model and comparison_model != model:
+            if enable_model_comparison and comparison_model:
                 comparison_payload = load_or_screen(
                     criteria_json=criteria_json,
                     criteria_hash=criteria_hash,
@@ -255,7 +255,7 @@ def load_or_screen(
     use_result_cache: bool,
     stage: str,
 ) -> Dict[str, Any]:
-    key = model_cache_key(extraction.sha256, criteria_hash, model, reasoning_effort)
+    key = model_cache_key(extraction.sha256, criteria_hash, model, reasoning_effort, stage)
     cache_path = cache_dir / f"{key}.json"
     if use_result_cache and cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -283,6 +283,7 @@ def cost_record(file_name: str, stage: str, model: str, payload: Dict[str, Any])
     input_tokens = int(usage.get("input_tokens") or 0)
     cached_input_tokens = int(usage.get("cached_input_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
+    reasoning_output_tokens = int(usage.get("reasoning_output_tokens") or 0)
     uncached_cost = usage.get("estimated_cost_usd")
     if not isinstance(uncached_cost, (int, float)):
         uncached_cost = estimate_cost_usd(model, input_tokens, output_tokens, cached_input_tokens)
@@ -295,6 +296,7 @@ def cost_record(file_name: str, stage: str, model: str, payload: Dict[str, Any])
         "input_tokens": input_tokens,
         "cached_input_tokens": cached_input_tokens,
         "output_tokens": output_tokens,
+        "reasoning_output_tokens": reasoning_output_tokens,
         "total_tokens": int(usage.get("total_tokens") or input_tokens + output_tokens),
         "token_source": usage.get("token_source", "api"),
         "cost_usd": 0.0 if cached and isinstance(uncached_cost, (int, float)) else uncached_cost,
@@ -307,13 +309,14 @@ def criteria_digest(criteria_json: Dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def model_cache_key(file_hash: str, criteria_hash: str, model: str, reasoning_effort: str) -> str:
+def model_cache_key(file_hash: str, criteria_hash: str, model: str, reasoning_effort: str, stage: str) -> str:
     raw = json.dumps(
         {
             "file_hash": file_hash,
             "criteria_hash": criteria_hash,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "stage": stage,
             "prompt_version": PROMPT_VERSION,
         },
         sort_keys=True,

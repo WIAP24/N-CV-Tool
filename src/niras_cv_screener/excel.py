@@ -172,6 +172,8 @@ def write_workbook(
         ("Estimated files", cost_preview.get("estimated_files", "")),
         ("Estimated model calls", cost_preview.get("estimated_model_calls", "")),
         ("Estimated input tokens", cost_preview.get("estimated_input_tokens", "")),
+        ("Estimated visible output tokens", cost_preview.get("estimated_visible_output_tokens", "")),
+        ("Estimated reasoning output tokens", cost_preview.get("estimated_reasoning_output_tokens", "")),
         ("Estimated output tokens", cost_preview.get("estimated_output_tokens", "")),
         ("Estimated total tokens", cost_preview.get("estimated_total_tokens", "")),
         ("Estimated cost before app cache USD", cost_preview.get("estimated_uncached_cost_usd", "")),
@@ -185,7 +187,7 @@ def write_workbook(
     row_num += 1
     write_section_title(ws_cost, row_num, "Selected Model Rate Card", section_fill)
     row_num += 1
-    preview_headers = ["stage", "model", "model_label", "files", "estimated_calls", "estimated_input_tokens", "estimated_output_tokens", "input_usd_per_1m", "cached_input_usd_per_1m", "output_usd_per_1m", "estimated_uncached_cost_usd"]
+    preview_headers = ["stage", "model", "model_label", "reasoning_effort", "files", "estimated_calls", "estimated_input_tokens", "estimated_visible_output_tokens", "estimated_reasoning_output_tokens", "estimated_output_tokens", "input_usd_per_1m", "cached_input_usd_per_1m", "output_usd_per_1m", "estimated_uncached_cost_usd"]
     write_header(ws_cost, preview_headers, header_fill, row=row_num)
     row_num += 1
     for row in cost_preview.get("rows", []):
@@ -206,14 +208,14 @@ def write_workbook(
     row_num += 1
     write_section_title(ws_cost, row_num, "Actual Model Calls", section_fill)
     row_num += 1
-    headers = ["candidate_file", "stage", "model", "cached", "input_tokens", "cached_input_tokens", "output_tokens", "total_tokens", "token_source", "cost_usd", "uncached_estimate_usd"]
+    headers = ["candidate_file", "stage", "model", "cached", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens", "token_source", "cost_usd", "uncached_estimate_usd"]
     write_header(ws_cost, headers, header_fill, row=row_num)
     row_num += 1
     for record in cost_records:
         for col_num, header in enumerate(headers, start=1):
             ws_cost.cell(row=row_num, column=col_num, value=safe_value(record.get(header, "")))
         row_num += 1
-    set_widths(ws_cost, [32, 40, 22, 12, 14, 18, 14, 14, 16, 14, 20])
+    set_widths(ws_cost, [32, 40, 22, 12, 14, 18, 14, 18, 14, 16, 14, 20, 20, 20])
     ws_cost.freeze_panes = "A3"
 
     ws_manifest = wb.create_sheet("Run Settings")
@@ -282,6 +284,3 @@ def safe_value(value: Any) -> Any:
     if isinstance(value, (list, dict)):
         return json.dumps(value, ensure_ascii=False)
     return str(value).encode("utf-8", errors="ignore").decode("utf-8")
-
-
-

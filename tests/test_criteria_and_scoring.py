@@ -14,7 +14,16 @@ if str(SRC) not in sys.path:
 from niras_cv_screener.criteria import criteria_to_rows, parse_criteria_text, rows_to_criteria
 from niras_cv_screener.evaluation import compare_scored_results
 from niras_cv_screener.excel import write_workbook
-from niras_cv_screener.model_config import estimate_cost_usd, estimate_screening_run_cost
+from niras_cv_screener.model_config import (
+    DEFAULT_MODEL,
+    MODEL_CHOICES,
+    default_reasoning_effort_for_model,
+    estimate_cost_usd,
+    estimate_screening_run_cost,
+    pricing_for_model,
+    reasoning_efforts_for_model,
+    supports_reasoning_effort,
+)
 from niras_cv_screener.review import build_calibration_report, build_review_queue
 from niras_cv_screener.scoring import score_candidate
 
@@ -67,11 +76,32 @@ class ScoringTests(unittest.TestCase):
 
 
 class CostEstimateTests(unittest.TestCase):
+    def test_default_model_and_reasoning_defaults_match_requested_settings(self) -> None:
+        self.assertEqual(DEFAULT_MODEL, "gpt-4o-mini")
+        self.assertEqual(default_reasoning_effort_for_model("gpt-4o-mini"), "none")
+        self.assertEqual(default_reasoning_effort_for_model("gpt-5.6-terra"), "medium")
+        self.assertEqual(default_reasoning_effort_for_model("gpt-5.6-sol"), "high")
+        self.assertEqual(default_reasoning_effort_for_model("gpt-5.6-luna"), "medium")
+
+    def test_removed_gpt_5_3_models_are_not_presets(self) -> None:
+        self.assertNotIn("gpt-5.3-codex", MODEL_CHOICES)
+        self.assertNotIn("gpt-5.3-chat-latest", MODEL_CHOICES)
+        self.assertIsNone(pricing_for_model("gpt-5.3-codex"))
+        self.assertIsNone(pricing_for_model("gpt-5.3-chat-latest"))
+
     def test_estimate_cost_uses_cached_input_pricing(self) -> None:
         self.assertEqual(estimate_cost_usd("gpt-5.6-luna", 1_000_000, 1_000_000), 7.0)
         self.assertEqual(estimate_cost_usd("gpt-5.6-luna", 1_000_000, 1_000_000, cached_input_tokens=500_000), 6.55)
 
-    def test_pre_run_preview_includes_comparison_model_cost(self) -> None:
+    def test_trimmed_models_are_not_presets(self) -> None:
+        for model in ("gpt-5.6", "gpt-5.5", "gpt-5.5-pro"):
+            with self.subTest(model=model):
+                self.assertNotIn(model, MODEL_CHOICES)
+                self.assertIsNone(pricing_for_model(model))
+        self.assertTrue(supports_reasoning_effort("gpt-5.6-sol", "high"))
+        self.assertIn("xhigh", reasoning_efforts_for_model("gpt-5.6-terra"))
+
+    def test_pre_run_preview_includes_comparison_model_cost_and_reasoning(self) -> None:
         preview = estimate_screening_run_cost(
             [
                 {"file": "a.pdf", "estimated_cv_input_tokens": 1000},
@@ -80,14 +110,39 @@ class CostEstimateTests(unittest.TestCase):
             criteria_tokens=500,
             criteria_count=3,
             primary_model="gpt-5.6-luna",
-            comparison_model="gpt-5.6-terra",
+            comparison_model="gpt-5.6-luna",
             enable_model_comparison=True,
+            primary_reasoning_effort="low",
+            comparison_reasoning_effort="high",
         )
         self.assertEqual(preview["estimated_files"], 2)
         self.assertEqual(preview["estimated_model_calls"], 4)
         self.assertEqual(len(preview["rows"]), 2)
+        self.assertEqual(preview["rows"][0]["reasoning_effort"], "low")
+        self.assertEqual(preview["rows"][1]["reasoning_effort"], "high")
+        self.assertGreater(preview["estimated_reasoning_output_tokens"], 0)
         self.assertIsNotNone(preview["estimated_uncached_cost_usd"])
         self.assertGreater(preview["estimated_uncached_cost_usd"], 0)
+
+    def test_reasoning_effort_changes_pre_run_cost_estimate(self) -> None:
+        inputs = [{"file": "example_candidate.pdf", "estimated_cv_input_tokens": 2500}]
+        low = estimate_screening_run_cost(
+            inputs,
+            criteria_tokens=700,
+            criteria_count=5,
+            primary_model="gpt-5.6-luna",
+            primary_reasoning_effort="low",
+        )
+        high = estimate_screening_run_cost(
+            inputs,
+            criteria_tokens=700,
+            criteria_count=5,
+            primary_model="gpt-5.6-luna",
+            primary_reasoning_effort="high",
+        )
+        self.assertGreater(high["estimated_reasoning_output_tokens"], low["estimated_reasoning_output_tokens"])
+        self.assertGreater(high["estimated_output_tokens"], low["estimated_output_tokens"])
+        self.assertGreater(high["estimated_uncached_cost_usd"], low["estimated_uncached_cost_usd"])
 
 
 class EvaluationAndReviewTests(unittest.TestCase):
@@ -112,7 +167,7 @@ class EvaluationAndReviewTests(unittest.TestCase):
         queue = build_review_queue(results, build_calibration_report(results), [], [])
         self.assertTrue(any(row["area"] == "Mandatory gap" for row in queue))
 
-    def test_workbook_writes_review_sheets(self) -> None:
+    def test_workbook_writes_review_and_cost_sheets(self) -> None:
         criteria = sample_criteria()
         results = [score_candidate(make_result("Example Candidate", "example_candidate.pdf", min_score=4, pref_score=4))]
         calibration = build_calibration_report(results)
@@ -122,6 +177,7 @@ class EvaluationAndReviewTests(unittest.TestCase):
             criteria_tokens=500,
             criteria_count=2,
             primary_model="gpt-5.6-luna",
+            primary_reasoning_effort="high",
         )
         out = Path(tempfile.gettempdir()) / "niras_cv_screener_workbook_test.xlsx"
         write_workbook(
@@ -135,8 +191,23 @@ class EvaluationAndReviewTests(unittest.TestCase):
             review_queue=review,
             model_evaluations=[],
             model_evaluation_details=[],
-            cost_records=[{"candidate_file": "example_candidate.pdf", "stage": "primary", "model": "test", "cached": False, "input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 5, "total_tokens": 15, "token_source": "estimated", "cost_usd": None, "uncached_estimate_usd": None}],
-            cost_summary={"model_calls": 1},
+            cost_records=[
+                {
+                    "candidate_file": "example_candidate.pdf",
+                    "stage": "primary",
+                    "model": "test",
+                    "cached": False,
+                    "input_tokens": 10,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 5,
+                    "reasoning_output_tokens": 2,
+                    "total_tokens": 15,
+                    "token_source": "estimated",
+                    "cost_usd": None,
+                    "uncached_estimate_usd": None,
+                }
+            ],
+            cost_summary={"model_calls": 1, "reasoning_output_tokens": 2},
             cost_preview=preview,
         )
         self.assertTrue(out.exists())
@@ -168,4 +239,3 @@ def make_result(name: str, file_name: str, min_score: int, pref_score: int) -> d
 
 if __name__ == "__main__":
     unittest.main()
-

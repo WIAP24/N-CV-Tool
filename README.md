@@ -1,8 +1,39 @@
-# N CV Screener
+# NIRAS CV Screener
 
 A Streamlit application for screening batches of CVs against role-specific criteria. The tool extracts text from CV files, asks an OpenAI model to score each criterion using evidence from the CV, then produces structured Excel and JSON outputs for human review, calibration, cost tracking, and auditability.
 
 The app is designed for first-pass screening support. It does not replace a recruiter, hiring manager, or formal HR decision process. Its main value is making repeated CV review faster, more consistent, and easier to audit.
+
+## Streamlit Community Cloud
+
+Upload this package's contents to GitHub, preserving `src/`, `assets/`, and the other subfolders. In Community Cloud, select your repository and branch, set the entrypoint to `app.py` (or its repository-relative path), and select Python 3.13 in Advanced settings. `requirements.txt` installs Python dependencies; `packages.txt` installs Poppler and Tesseract for OCR on Linux. Reboot the app after changing dependencies.
+
+The default is browser uploads and downloads. No desktop paths need to be configured:
+
+1. Paste your API key in the app's password field. It remains in that user's session.
+2. Paste and check the criteria, then upload multiple CVs from the `CVs` tab.
+3. For desktop or synced OneDrive CVs, use the browser's file picker to select them. Make OneDrive files available offline first ("Always keep on this device").
+4. Review the cost preview and run screening.
+5. In Results, download Excel or the complete results ZIP. Choose your local or OneDrive destination using the browser's save dialog; if it downloads automatically, enable the browser's "Ask where to save each file" setting.
+
+A cloud server cannot access `C:\Users\...`, a mapped drive, or your local OneDrive folder by receiving its path. Direct access to online OneDrive/SharePoint would require a separate authenticated Microsoft Graph integration; this version uses browser uploads.
+
+Uploads and caches use a separate temporary directory for each session. Uploaded working copies are removed after processing, including failed runs. Completed reports are held in session memory for download, and the ZIP contains only that run's reports, not the API key or cache. Filenames are normalized and duplicates disambiguated to prevent files overwriting one another. The existing browser upload limit applies per file (200 MB by default); smaller batches reduce cloud memory use.
+
+Use **Clear session files and results** to remove temporary caches and current results. This does not remove downloads already saved to your device, or locally saved reports in desktop mode. Refreshing, closing, or losing the session can lose results; cloud storage is not a permanent archive. Temporary directories are also cleaned up when their session object is released, rather than immediately when a browser disconnects.
+
+For trusted desktop use only, enable local paths before starting the app in PowerShell:
+
+```powershell
+$env:NIRAS_ALLOW_LOCAL_PATHS = "true"
+python -m streamlit run app.py
+```
+
+This restores the folder-path input and output-folder field. Leave this setting unset on Community Cloud. Do not commit CVs, outputs, caches, or API keys to GitHub.
+
+## Visual Style
+
+The Streamlit interface uses NIRAS-inspired brand cues from the public NIRAS website: the red NIRAS logo, a restrained white and light-grey workspace, NIRAS red for primary actions, teal/blue accents for review states, and typography that follows the public site's Soho Gothic Pro and Guardian Egyptian font stack where available, with local system fallbacks when those fonts cannot be loaded.
 
 ## What The Tool Does
 
@@ -60,26 +91,35 @@ The workflow has five main stages.
 
 ## Model Selection And Cost Preview
 
-The sidebar lets the user choose a primary model from presets or enter a custom model ID. The current presets are:
+The sidebar lets the user choose a primary model from presets or enter a custom model ID. The comparison pass is enabled by default and initially uses the same model as the primary run, so the first cost estimate reflects two assessment passes per candidate. The primary pass and comparison pass each have their own reasoning effort selector.
 
-- `gpt-5.6-terra` - balanced quality and cost, used as the default.
-- `gpt-5.6-sol` - higher-cost option for complex or high-stakes review.
-- `gpt-5.6-luna` - lower-cost option for high-volume screening.
-- `gpt-5.6` - alias-style option included for compatibility.
-- `gpt-4o-mini` - lower-cost legacy preset.
+The app only shows reasoning effort options that are listed for the selected model in the local model catalog. When the selected model changes, the reasoning selector resets to that model's default reasoning level. `gpt-5.6-terra` and `gpt-5.6-luna` default to `medium`, while `gpt-5.6-sol` defaults to `high`.
+
+The current priced presets are:
+
+- `gpt-4o-mini` - low-cost legacy preset, used as the default.
+- `gpt-5.6-terra` - balanced quality and cost, defaulting to `medium` reasoning.
+- `gpt-5.6-sol` - higher-cost option for complex or high-stakes review, defaulting to `high` reasoning.
+- `gpt-5.6-luna` - lower-cost GPT-5.6 option for high-volume screening, defaulting to `medium` reasoning.
 
 Before the user starts a run, the `Run` tab shows:
 
-- selected model rate card
+- selected model rate cards
+- supported/default reasoning effort for each selected model
+- selected primary and comparison reasoning effort
 - estimated model calls
 - estimated input tokens
-- estimated output tokens
+- estimated visible output tokens
+- estimated reasoning output tokens
+- estimated total output tokens
 - estimated API cost
-- cost impact of enabling a comparison model
+- cost impact of the default comparison pass
 
-The estimate is intentionally shown before the run so the user can change model choice, disable comparison, reduce the batch size, or adjust criteria before spending API credits.
+The estimate is intentionally shown before the run so the user can change model choice, reasoning effort, comparison settings, batch size, or criteria before spending API credits.
 
-Cost estimates are based on file size, criteria size, selected models, and expected response size. Actual costs can differ because PDF extraction length, OCR quality, model behavior, API tokenization, and API prompt caching can vary. After the run, the cost dashboard uses actual API token usage when available.
+Cost estimates are based on file size, criteria size, selected models, selected reasoning effort, and expected response size. Reasoning effort matters because higher effort can produce extra reasoning output tokens, so the pre-run estimate applies a planning factor for `low`, `medium`, `high`, `xhigh`, and `max` effort levels. Actual costs can differ because PDF extraction length, OCR quality, model behavior, API tokenization, hidden reasoning, and API prompt caching can vary. After the run, the cost dashboard uses actual API token usage when available and records reported reasoning output tokens separately.
+
+The pricing table in `src/niras_cv_screener/model_config.py` was checked against OpenAI API model/pricing documentation on 2026-07-24. Pricing can change, so review this table periodically before high-volume use.
 
 ## Scoring Logic
 
@@ -148,7 +188,7 @@ This is useful after an initial batch because it helps reviewers decide whether 
 
 ## Optional Model Evaluation
 
-The app can run a comparison model against the same CVs and criteria. This is useful for calibration, quality checks, and reviewing borderline decisions.
+The app runs a comparison pass by default against the same CVs and criteria. By default, the comparison model is the same as the primary model selected for the initial run. This gives reviewers a second assessment pass for calibration, quality checks, and reviewing borderline decisions.
 
 When enabled, the app compares:
 
@@ -159,7 +199,7 @@ When enabled, the app compares:
 - pass/fail flips
 - evidence differences
 
-Because comparison mode makes an additional model call for each CV, it increases cost unless cached results are reused. It is best used for calibration batches, shortlists, disputed cases, or spot checks rather than every routine run.
+Because comparison mode makes an additional model call for each CV, it increases cost unless cached results are reused. The pre-run cost preview and exported cost dashboard include this comparison cost, even when the comparison model matches the primary model. You can disable comparison mode in the sidebar when a lower-cost single-pass run is preferred.
 
 ## Compliance And Sensitive Information
 
@@ -172,7 +212,7 @@ These flags are included so reviewers can avoid relying on irrelevant or protect
 - The OpenAI API key can be pasted into the UI or supplied through `OPENAI_API_KEY`.
 - The API key is held in the app session and is not written to output files.
 - CV text is sent to OpenAI for model scoring when a run is started.
-- Output files are written locally to the selected output folder.
+- In default browser mode, download output files from Results. In optional desktop mode, files are also written to the selected output folder.
 - Generated outputs and caches are ignored by `.gitignore`.
 - This GitHub-ready package does not include real CVs, extracted CV text, raw screening outputs, Excel outputs, or local caches.
 
@@ -221,15 +261,15 @@ Typical use:
 
 1. Paste or edit criteria in the `Criteria` tab.
 2. Confirm the parsed criteria table.
-3. Select a CV folder or upload files in the `CVs` tab.
-4. Choose model, thresholds, caching, OCR, and optional comparison settings.
+3. Upload files in the `CVs` tab (or select a folder when desktop mode is enabled).
+4. Choose model, thresholds, caching, OCR, and comparison settings.
 5. Review the model and cost preview in the `Run` tab.
 6. Press `Run Screening`.
 7. Review results in the app or download the Excel workbook.
 
 ## Outputs
 
-Each run creates a timestamped folder under the selected output directory.
+Each run creates a timestamped report folder. Browser mode packages it for download and removes the temporary report folder; desktop mode retains it under the selected output directory.
 
 Main workbook:
 
@@ -278,13 +318,16 @@ The tests cover:
 - criteria parsing
 - duplicate criterion validation
 - scoring and recommendation logic
+- model catalog defaults and removed preset checks
+- trimmed model catalog checks
+- cached-input and no-cached-discount pricing behaviour
+- reasoning-effort impact on pre-run cost estimates
 - model comparison flags
 - calibration flags
 - review queue generation
-- cost estimation
-- workbook generation
+- workbook generation, including cost dashboard fields
 
-A GitHub Actions workflow is included at `.github/workflows/tests.yml` so tests run automatically after publishing to GitHub.
+Run `python -m unittest discover -s tests` to verify the app, including cloud uploads, downloads, and session cleanup.
 
 ## Nuances And Limitations
 
@@ -293,9 +336,9 @@ A GitHub Actions workflow is included at `.github/workflows/tests.yml` so tests 
 - OCR quality depends on scan quality and local Tesseract installation.
 - Model outputs should be reviewed, especially for borderline candidates.
 - The app deliberately separates model scoring from final recommendation logic.
-- Cost estimates are estimates, not invoices.
-- Custom model IDs may work, but cost estimates are only available for models in the local pricing table.
-- The pricing table should be reviewed periodically because model pricing can change.
+- Cost estimates are estimates, not invoices, and include selected reasoning effort, estimated reasoning output tokens, and the comparison pass when comparison is enabled.
+- Custom model IDs may work, but dollar cost estimates are only available for models in the local pricing table. Generic GPT-5 custom IDs can still expose reasoning effort choices.
+- The pricing table should be reviewed periodically because model pricing and supported reasoning options can change.
 - Compliance flags are simple text-pattern alerts and may produce false positives or miss subtle issues.
 - The tool should not be used as the sole basis for hiring decisions.
 
