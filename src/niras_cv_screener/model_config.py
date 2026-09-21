@@ -44,6 +44,17 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         "pricing_source": "OpenAI GPT-5 mini model docs, checked 2026-09-21",
         "availability_note": "The dated gpt-5-mini-2025-08-07 snapshot retires on 11 December 2026. This preset uses the gpt-5-mini alias; review availability before that date.",
     },
+    "gpt-4o-mini": {
+        "label": "GPT-4o mini",
+        "family": "GPT-4o",
+        "role": "Lower-cost alternative for focused screening",
+        "input": 0.15,
+        "cached_input": 0.075,
+        "output": 0.60,
+        "reasoning_efforts": [],
+        "default_reasoning_effort": "none",
+        "pricing_source": "OpenAI GPT-4o mini model docs, checked 2026-09-21",
+    },
     "gpt-5.6-terra": {
         "label": "GPT-5.6 Terra",
         "family": "GPT-5.6",

@@ -90,6 +90,14 @@ class ScoringTests(unittest.TestCase):
 
 
 class CostEstimateTests(unittest.TestCase):
+    def test_4o_mini_optional_pricing_and_reasoning(self):
+        self.assertIn("gpt-4o-mini", MODEL_CHOICES)
+        self.assertEqual(DEFAULT_MODEL, "gpt-5-mini")
+        self.assertEqual(estimate_cost_usd("gpt-4o-mini", 1_000_000, 1_000_000), 0.75)
+        self.assertEqual(estimate_cost_usd("gpt-4o-mini", 1_000_000, 1_000_000, 1_000_000), 0.675)
+        self.assertEqual(reasoning_efforts_for_model("gpt-4o-mini"), ["none"])
+        self.assertFalse(supports_reasoning_effort("gpt-4o-mini", "medium"))
+
     def test_mini_prices_and_reasoning(self):
         self.assertEqual(estimate_cost_usd("gpt-5-mini", 1_000_000, 1_000_000), 2.25)
         self.assertEqual(estimate_cost_usd("gpt-5-mini", 1_000_000, 1_000_000, 1_000_000), 2.025)
@@ -123,7 +131,7 @@ class CostEstimateTests(unittest.TestCase):
         self.assertEqual(estimate_cost_usd("gpt-5.6-luna", 1_000_000, 1_000_000, cached_input_tokens=500_000), 6.55)
 
     def test_trimmed_models_are_not_presets(self) -> None:
-        for model in ("gpt-4o-mini", "gpt-5.6", "gpt-5.5", "gpt-5.5-pro"):
+        for model in ("gpt-5.6", "gpt-5.5", "gpt-5.5-pro"):
             with self.subTest(model=model):
                 self.assertNotIn(model, MODEL_CHOICES)
                 self.assertIsNone(pricing_for_model(model))

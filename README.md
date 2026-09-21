@@ -106,6 +106,7 @@ The app only shows reasoning effort options that are listed for the selected mod
 The current priced presets are:
 
 - `gpt-5-mini` - default for cost-efficient structured screening, with medium reasoning. Its standard rates are $0.25 input, $0.025 cached input and $2.00 output per million tokens, including reasoning output. The comparison pass defaults to the same model and its extra cost is included.
+- `gpt-4o-mini` - optional lower-cost alternative, available for primary or comparison runs. Standard rates are $0.15 input, $0.075 cached input and $0.60 output per million tokens. It does not support adjustable reasoning effort.
 - `gpt-5.6-terra` - balanced quality and cost, defaulting to `medium` reasoning.
 - `gpt-5.6-sol` - higher-cost option for complex or high-stakes review, defaulting to `high` reasoning.
 - `gpt-5.6-luna` - lower-cost GPT-5.6 option for high-volume screening, defaulting to `medium` reasoning.
@@ -127,7 +128,7 @@ The estimate is intentionally shown before the run so the user can change model 
 
 Cost estimates are based on file size, criteria size, selected models, selected reasoning effort, and expected response size. Reasoning effort matters because higher effort can produce extra reasoning output tokens, so the pre-run estimate applies a planning factor for `low`, `medium`, `high`, `xhigh`, and `max` effort levels. Actual costs can differ because PDF extraction length, OCR quality, model behavior, API tokenization, hidden reasoning, and API prompt caching can vary. After the run, the cost dashboard uses actual API token usage when available and records reported reasoning output tokens separately.
 
-GPT-5 mini pricing was checked against the [official model page](https://developers.openai.com/api/docs/models/gpt-5-mini) on 2026-09-21. The other preset rates retain their 2026-07-24 check date. GPT-5 mini supports minimal, low, medium and high reasoning; all levels are included in pre-run cost estimates. GPT-4o mini and GPT-5.5 are not offered as presets.
+GPT-5 mini and GPT-4o mini pricing was checked against their official model pages on 2026-09-21: [GPT-5 mini](https://developers.openai.com/api/docs/models/gpt-5-mini), [GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini). The other preset rates retain their 2026-07-24 check date. GPT-5 mini supports minimal, low, medium and high reasoning; all levels are included in pre-run cost estimates. GPT-5.5 is not offered as a preset.
 
 The [API deprecation schedule](https://developers.openai.com/api/docs/deprecations), checked 2026-09-21, lists retirement of the dated `gpt-5-mini-2025-08-07` snapshot on 11 December 2026. This app selects the `gpt-5-mini` alias; review its availability before that date rather than assuming indefinite support. No shutdown of the standard `gpt-4o-mini` text model or `gpt-5.5` API model was listed in that schedule. ChatGPT/Codex product retirement notices do not necessarily apply to API access. Pricing and availability can change.
 
