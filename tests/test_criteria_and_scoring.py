@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from niras_cv_screener.criteria import criteria_to_rows, parse_criteria_text, rows_to_criteria
+from niras_cv_screener.criteria import criteria_to_rows, parse_criteria_text, rows_to_criteria, parse_requirement_fields
 from niras_cv_screener.evaluation import compare_scored_results
 from niras_cv_screener.excel import write_workbook
 from niras_cv_screener.model_config import (
@@ -29,6 +29,20 @@ from niras_cv_screener.scoring import score_candidate
 
 
 class CriteriaParsingTests(unittest.TestCase):
+    def test_separate_fields_preserve_lines_and_sections(self):
+        parsed = parse_requirement_fields("  Analyst  ", "Skills\n- Excel [weight=2]\n1. English [pass=4]", "Experience:\nPower BI [mandatory]")
+        rows = criteria_to_rows(parsed)
+        self.assertEqual(parsed["role_title"], "Analyst")
+        self.assertEqual(len(rows), 5)
+        self.assertEqual([r["mandatory"] for r in rows], [True, True, True, False, False])
+        self.assertEqual(rows[1]["weight"], 2)
+        self.assertEqual(rows[2]["pass_score"], 4)
+        self.assertEqual(rows[3]["text"], "Experience:")
+        self.assertEqual(len(criteria_to_rows(parse_requirement_fields("Analyst", "Excel", ""))), 1)
+        for title, essential in (("", "Excel"), ("Analyst", "\n")):
+            with self.assertRaises(ValueError):
+                parse_requirement_fields(title, essential, "Power BI")
+
     def test_parse_sections_weights_and_pass_scores(self) -> None:
         parsed = parse_criteria_text(
             """

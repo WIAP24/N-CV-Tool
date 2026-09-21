@@ -11,7 +11,7 @@ Upload this package's contents to GitHub, preserving `src/`, `assets/`, and the 
 The default is browser uploads and downloads. No desktop paths need to be configured:
 
 1. Paste your API key in the app's password field. It remains in that user's session.
-2. Paste and check the criteria, then upload multiple CVs from the `CVs` tab.
+2. Enter Role Title, Essential Requirements and Preferred Requirements, with one criterion per line. Press Parse Criteria and check the table, then upload CVs from the `CVs` tab.
 3. For desktop or synced OneDrive CVs, use the browser's file picker to select them. Make OneDrive files available offline first ("Always keep on this device").
 4. Review the cost preview and run screening.
 5. In Results, download Excel or the complete results ZIP. Choose your local or OneDrive destination using the browser's save dialog; if it downloads automatically, enable the browser's "Ask where to save each file" setting.
@@ -63,7 +63,7 @@ The workflow has five main stages.
 
 1. Criteria preparation
 
-   The user pastes role criteria into the `Criteria` tab. The app parses the text into rows with criterion IDs, sections, mandatory flags, pass scores, and weights. The reviewer can edit the parsed table before running the screen.
+   The `Criteria` tab starts empty with separate Role Title, Essential Requirements and Preferred Requirements fields. Enter one criterion per line and press Parse Criteria. Role Title and at least one essential criterion are required; preferred requirements are optional. Essential entries are mandatory, preferred entries are optional, and every non-empty line becomes one criterion even if it resembles a heading. Bullets and numbering are removed; optional weight and pass annotations are supported. The reviewer can edit the resulting table before screening. Changing the source fields clears the old table and requires parsing again to avoid stale criteria.
 
 2. CV intake and extraction
 
@@ -267,7 +267,7 @@ Then open the local Streamlit URL in a browser if it does not open automatically
 
 Typical use:
 
-1. Paste or edit criteria in the `Criteria` tab.
+1. Enter the role title and separate essential and preferred requirements in the `Criteria` tab, then press Parse Criteria.
 2. Confirm the parsed criteria table.
 3. Upload files in the `CVs` tab (or select a folder when desktop mode is enabled).
 4. Choose model, thresholds, caching, OCR, and comparison settings.

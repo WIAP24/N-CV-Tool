@@ -12,6 +12,23 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 class CloudUITests(unittest.TestCase):
+    def test_blank_fields_parse_and_invalidate(self):
+        with patch.dict(os.environ, {"NIRAS_ALLOW_LOCAL_PATHS": ""}):
+            app = AppTest.from_file(str(ROOT / "app.py")).run(timeout=30)
+            self.assertEqual(app.text_input(key="criteria_role_title").value, "")
+            self.assertTrue(all(item.value == "" for item in app.text_area))
+            self.assertEqual(app.session_state.criteria_rows, [])
+            self.assertEqual(len(app.sidebar.get("imgs")), 1)
+            self.assertEqual(len(app.main.get("imgs")), 0)
+            app.text_input(key="criteria_role_title").set_value("Analyst")
+            app.text_area(key="essential_requirements").set_value("Excel\nWritten English")
+            app.text_area(key="preferred_requirements").set_value("Power BI")
+            next(item for item in app.button if item.label == "Parse Criteria").click().run()
+            self.assertFalse(app.exception)
+            self.assertEqual([r["mandatory"] for r in app.session_state.criteria_rows], [True, True, False])
+            app.text_area(key="essential_requirements").set_value("Updated requirement").run()
+            self.assertEqual(app.session_state.criteria_rows, [])
+
     def test_run_uses_memory_only(self):
         uploaded = io.BytesIO(b"Synthetic CV for testing only")
         uploaded.name = "example.txt"
@@ -30,6 +47,9 @@ class CloudUITests(unittest.TestCase):
              patch("streamlit.file_uploader", return_value=[uploaded]), \
              patch("niras_cv_screener.workflow.process_paths", side_effect=fake_process):
             app = AppTest.from_file(str(ROOT / "app.py")).run(timeout=30)
+            app.text_input(key="criteria_role_title").set_value("Test Role")
+            app.text_area(key="essential_requirements").set_value("Required skill")
+            next(item for item in app.button if item.label == "Parse Criteria").click().run()
             next(item for item in app.button if item.label == "Run Screening").click().run(timeout=30)
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state.last_run["excel_download"], b"synthetic workbook")

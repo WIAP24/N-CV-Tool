@@ -140,6 +140,35 @@ def parse_criteria_text(raw: str) -> Dict[str, Any]:
     }
 
 
+def parse_requirement_fields(role_title: str, essential: str, preferred: str) -> Dict[str, Any]:
+    if not role_title.strip():
+        raise ValueError("Enter a Role Title.")
+    sections = []
+    for name, raw, mandatory in (("Essential Requirements", essential, True),
+                                 ("Preferred Requirements", preferred, False)):
+        criteria = []
+        for line in normalise_newlines(raw).split("\n"):
+            text = line.strip()
+            bullet = BULLET_PATTERN.match(text)
+            if bullet:
+                text = bullet.group(1).strip()
+            weight, text = extract_number(WEIGHT_PATTERN, text, 1.0)
+            pass_score, text = extract_number(PASS_PATTERN, text, 3.0)
+            text, _ = strip_inline_flags(text)
+            if text:
+                criteria.append({"text": text, "mandatory": mandatory,
+                                 "weight": weight, "pass_score": int(pass_score)})
+        if mandatory and not criteria:
+            raise ValueError("Enter at least one Essential Requirement.")
+        if criteria:
+            sections.append({"name": name, "criteria": criteria})
+    assign_ids(sections)
+    result = {"role_title": role_title.strip(), "sections": sections,
+              "minimum_pass_score": 3, "scoring_rubric": DEFAULT_RUBRIC}
+    validate_criteria(result)
+    return result
+
+
 def assign_ids(sections: List[Dict[str, Any]]) -> None:
     counters = {"min": 1, "pref": 1, "other": 1}
     for section in sections:

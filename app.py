@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
 from niras_cv_screener.criteria import (
     DEFAULT_RUBRIC,
     criteria_to_rows,
-    parse_criteria_text,
+    parse_requirement_fields,
     rows_to_criteria,
     validate_criteria,
 )
@@ -57,13 +57,9 @@ st.set_page_config(
 )
 
 
-def load_sample_criteria() -> str:
-    sample = ROOT / "sample_criteria.txt"
-    return sample.read_text(encoding="utf-8") if sample.exists() else ""
-
-
 def ensure_state() -> None:
-    st.session_state.setdefault("criteria_text", load_sample_criteria())
+    st.session_state.setdefault("essential_requirements", "")
+    st.session_state.setdefault("preferred_requirements", "")
     st.session_state.setdefault("criteria_rows", [])
     st.session_state.setdefault("criteria_role_title", "")
     st.session_state.setdefault("api_key", os.getenv("OPENAI_API_KEY", ""))
@@ -77,9 +73,16 @@ def ensure_state() -> None:
 
 
 def parse_current_criteria() -> None:
-    parsed = parse_criteria_text(st.session_state.criteria_text)
+    parsed = parse_requirement_fields(*criteria_inputs())
     st.session_state.criteria_rows = criteria_to_rows(parsed)
-    st.session_state.criteria_role_title = parsed.get("role_title", "")
+    st.session_state.parsed_inputs = criteria_inputs()
+    st.session_state.editor_generation = st.session_state.get("editor_generation", 0) + 1
+
+
+def criteria_inputs() -> tuple[str, str, str]:
+    return (st.session_state.criteria_role_title,
+            st.session_state.essential_requirements,
+            st.session_state.preferred_requirements)
 
 
 def rows_from_editor(editor_value: Any) -> List[Dict[str, Any]]:
@@ -133,7 +136,7 @@ def criteria_token_estimate() -> tuple[int, int]:
         criteria_count = len(criteria_to_rows(criteria_json))
         token_basis = json.dumps(criteria_json, ensure_ascii=False)
     except Exception:
-        token_basis = st.session_state.criteria_text
+        token_basis = "\n".join(criteria_inputs())
     return estimate_tokens(token_basis) + DEFAULT_FIXED_PROMPT_TOKENS, criteria_count
 
 
@@ -286,7 +289,7 @@ def inject_brand_css() -> None:
 
         .niras-brand-header {
             display: grid;
-            grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr);
             gap: 2rem;
             align-items: start;
             padding: 1.15rem 0 1.4rem;
@@ -505,12 +508,9 @@ def inject_brand_css() -> None:
 
 
 def render_brand_header() -> None:
-    logo_path = ROOT / "assets" / "niras-logo.svg"
-    logo_svg = logo_path.read_text(encoding="utf-8") if logo_path.exists() else '<strong style="color:#BA1223;font-size:2rem;">NIRAS</strong>'
     st.markdown(
         f"""
         <div class="niras-brand-header">
-            <div>{logo_svg}</div>
             <div>
                 <div class="niras-brand-kicker">Recruitment screening workspace</div>
                 <h1 class="niras-brand-title">CV Screener</h1>
@@ -562,6 +562,7 @@ with st.container(border=True):
         st.warning("Add your OpenAI API key here before running a screening batch.")
 
 with st.sidebar:
+    st.image(str(ROOT / "assets" / "niras-logo.svg"), width=170)
     st.subheader("Run Settings")
     model_entry_mode = st.radio("Primary model", ["Preset", "Custom"], horizontal=True)
     if model_entry_mode == "Preset":
@@ -614,11 +615,13 @@ with st.sidebar:
 criteria_tab, cv_tab, run_tab, results_tab = st.tabs(["1. Criteria", "2. CVs", "3. Run", "4. Results"])
 
 with criteria_tab:
-    st.session_state.criteria_text = st.text_area(
-        "Paste criteria",
-        value=st.session_state.criteria_text,
-        height=260,
-    )
+    st.text_input("Role Title", key="criteria_role_title")
+    st.text_area("Essential Requirements", key="essential_requirements", height=220,
+                 help="One criterion per line. These requirements are mandatory.")
+    st.text_area("Preferred Requirements", key="preferred_requirements", height=180,
+                 help="One criterion per line. Optional additional requirements.")
+    if st.session_state.get("parsed_inputs") != criteria_inputs():
+        st.session_state.criteria_rows = []
     col_a, col_b = st.columns([1, 5])
     with col_a:
         if st.button("Parse Criteria", type="primary"):
@@ -630,17 +633,11 @@ with criteria_tab:
     with col_b:
         st.caption("Check and edit the table before running. Mandatory criteria drive pass/fail recommendations.")
 
-    if not st.session_state.criteria_rows:
-        try:
-            parse_current_criteria()
-        except Exception:
-            pass
-
     if st.session_state.criteria_rows:
-        st.text_input("Role title", key="criteria_role_title")
         criteria_df = pd.DataFrame(st.session_state.criteria_rows)
         edited = st.data_editor(
             criteria_df,
+            key=f"criteria_editor_{st.session_state.get('editor_generation', 0)}",
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
@@ -693,6 +690,7 @@ with run_tab:
     comparison_active = enable_model_comparison and bool(comparison_model.strip())
     checks = {
         "Criteria rows": bool(st.session_state.criteria_rows),
+        "Role Title": bool(st.session_state.criteria_role_title.strip()),
         "CV files": bool(cv_paths or uploaded),
         "OpenAI API key": bool(api_key.strip()),
         "Primary model": bool(model.strip()),
