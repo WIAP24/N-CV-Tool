@@ -191,6 +191,8 @@ def cost_rows_for_display(rows: List[Dict[str, Any]]) -> pd.DataFrame:
 
 def show_rate_caption(model: str, label: str) -> None:
     card = model_rate_card(model)
+    if card.get("availability_note"):
+        st.caption(card["availability_note"])
     if card["input_usd_per_1m"] is None:
         st.caption(f"{label}: {card['model']} - pricing unavailable for this model ID.")
         return

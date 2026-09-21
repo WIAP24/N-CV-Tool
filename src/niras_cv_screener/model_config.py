@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5-mini"
 DEFAULT_COMPARISON_MODEL = DEFAULT_MODEL
-DEFAULT_REASONING_EFFORT = "none"
+DEFAULT_REASONING_EFFORT = "medium"
 PROMPT_VERSION = "cv-screening-2026-07-24-v2"
 
-REASONING_EFFORTS: List[str] = ["none", "low", "medium", "high", "xhigh", "max"]
+REASONING_EFFORTS: List[str] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 MAX_CV_INPUT_CHARS = 120_000
 MAX_CV_INPUT_TOKENS = 30_000
 DEFAULT_FIXED_PROMPT_TOKENS = 450
@@ -22,6 +22,7 @@ PRICING_SOURCE_LABEL = "OpenAI API model/pricing docs, checked 2026-07-24"
 # selected reasoning effort.
 REASONING_OUTPUT_TOKEN_FACTORS: Dict[str, float] = {
     "none": 0.0,
+    "minimal": 0.15,
     "low": 0.35,
     "medium": 0.75,
     "high": 1.5,
@@ -31,6 +32,18 @@ REASONING_OUTPUT_TOKEN_FACTORS: Dict[str, float] = {
 
 # USD per 1M text tokens. Cached input is API prompt caching, not the app's local result cache.
 MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
+    "gpt-5-mini": {
+        "label": "GPT-5 mini",
+        "family": "GPT-5",
+        "role": "Cost-efficient structured screening",
+        "input": 0.25,
+        "cached_input": 0.025,
+        "output": 2.00,
+        "reasoning_efforts": ["minimal", "low", "medium", "high"],
+        "default_reasoning_effort": "medium",
+        "pricing_source": "OpenAI GPT-5 mini model docs, checked 2026-09-21",
+        "availability_note": "The dated gpt-5-mini-2025-08-07 snapshot retires on 11 December 2026. This preset uses the gpt-5-mini alias; review availability before that date.",
+    },
     "gpt-5.6-terra": {
         "label": "GPT-5.6 Terra",
         "family": "GPT-5.6",
@@ -54,23 +67,12 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     "gpt-5.6-luna": {
         "label": "GPT-5.6 Luna",
         "family": "GPT-5.6",
-        "role": "Lowest cost / high volume",
+        "role": "Lower-cost GPT-5.6 / high volume",
         "input": 1.00,
         "cached_input": 0.10,
         "output": 6.00,
         "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
         "default_reasoning_effort": "medium",
-    },
-    "gpt-4o-mini": {
-        "label": "GPT-4o mini",
-        "family": "GPT-4o",
-        "role": "Low-cost legacy focused tasks",
-        "input": 0.15,
-        "cached_input": 0.075,
-        "output": 0.60,
-        "reasoning_efforts": [],
-        "default_reasoning_effort": "none",
-        "deprecated": True,
     },
 }
 
@@ -114,7 +116,8 @@ def model_rate_card(model: str) -> Dict[str, Any]:
         "supported_reasoning_efforts": ", ".join(reasoning_efforts_for_model(model)),
         "default_reasoning_effort": default_reasoning_effort_for_model(model),
         "deprecated": bool(details.get("deprecated", False)),
-        "pricing_source": PRICING_SOURCE_LABEL if pricing else "Not available in local pricing table",
+        "pricing_source": details.get("pricing_source", PRICING_SOURCE_LABEL) if pricing else "Not available in local pricing table",
+        "availability_note": details.get("availability_note", ""),
     }
 
 

@@ -90,8 +90,23 @@ class ScoringTests(unittest.TestCase):
 
 
 class CostEstimateTests(unittest.TestCase):
+    def test_mini_prices_and_reasoning(self):
+        self.assertEqual(estimate_cost_usd("gpt-5-mini", 1_000_000, 1_000_000), 2.25)
+        self.assertEqual(estimate_cost_usd("gpt-5-mini", 1_000_000, 1_000_000, 1_000_000), 2.025)
+        self.assertEqual(reasoning_efforts_for_model("gpt-5-mini"), ["minimal", "low", "medium", "high"])
+        previews = [estimate_screening_run_cost(
+            [{"file": "synthetic.txt", "estimated_cv_input_tokens": 1000}],
+            criteria_tokens=200, criteria_count=3, primary_model="gpt-5-mini",
+            comparison_model="gpt-5-mini", enable_model_comparison=True,
+            primary_reasoning_effort=effort, comparison_reasoning_effort=effort,
+        ) for effort in reasoning_efforts_for_model("gpt-5-mini")]
+        costs = [preview["estimated_uncached_cost_usd"] for preview in previews]
+        self.assertEqual(costs, sorted(set(costs)))
+        self.assertTrue(all(preview["estimated_model_calls"] == 2 for preview in previews))
+
     def test_default_model_and_reasoning_defaults_match_requested_settings(self) -> None:
-        self.assertEqual(DEFAULT_MODEL, "gpt-4o-mini")
+        self.assertEqual(DEFAULT_MODEL, "gpt-5-mini")
+        self.assertEqual(default_reasoning_effort_for_model("gpt-5-mini"), "medium")
         self.assertEqual(default_reasoning_effort_for_model("gpt-4o-mini"), "none")
         self.assertEqual(default_reasoning_effort_for_model("gpt-5.6-terra"), "medium")
         self.assertEqual(default_reasoning_effort_for_model("gpt-5.6-sol"), "high")
@@ -108,7 +123,7 @@ class CostEstimateTests(unittest.TestCase):
         self.assertEqual(estimate_cost_usd("gpt-5.6-luna", 1_000_000, 1_000_000, cached_input_tokens=500_000), 6.55)
 
     def test_trimmed_models_are_not_presets(self) -> None:
-        for model in ("gpt-5.6", "gpt-5.5", "gpt-5.5-pro"):
+        for model in ("gpt-4o-mini", "gpt-5.6", "gpt-5.5", "gpt-5.5-pro"):
             with self.subTest(model=model):
                 self.assertNotIn(model, MODEL_CHOICES)
                 self.assertIsNone(pricing_for_model(model))

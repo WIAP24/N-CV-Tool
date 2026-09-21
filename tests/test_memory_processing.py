@@ -92,6 +92,18 @@ class MemoryProcessingTests(unittest.TestCase):
         for call in client.responses.create.call_args_list:
             self.assertIs(call.kwargs["store"], False)
 
+    def test_gpt5_mini_request_parameters(self):
+        client = Mock()
+        client.responses.create.return_value = SimpleNamespace(
+            output_text=json.dumps(make_result("Synthetic", "example.txt", 4, 4)), usage={})
+        with patch("niras_cv_screener.llm.openai_client", return_value=client):
+            screen_cv_with_metadata(sample_criteria(), "synthetic", "example.txt", "test", "gpt-5-mini", "medium")
+        request = client.responses.create.call_args.kwargs
+        self.assertNotIn("temperature", request)
+        self.assertNotIn("seed", request)
+        self.assertEqual(request["reasoning"], {"effort": "medium"})
+        self.assertIs(request["store"], False)
+
 
 if __name__ == "__main__":
     unittest.main()

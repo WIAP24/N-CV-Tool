@@ -113,6 +113,9 @@ def screen_cv_with_metadata(
     }
     if supports_reasoning_effort(model, reasoning_effort):
         request["reasoning"] = {"effort": reasoning_effort}
+    if model == "gpt-5-mini" or model.startswith("gpt-5-mini-"):
+        request.pop("temperature", None)
+        request.pop("seed", None)
 
     response = create_response(client, request)
     raw_result = json.loads(response.output_text)
