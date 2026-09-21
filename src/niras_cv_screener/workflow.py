@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import io
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -14,17 +15,18 @@ from .llm import screen_cv_with_metadata
 from .model_config import PROMPT_VERSION, cost_preview_to_summary, estimate_cost_usd, summarize_cost_records
 from .review import build_calibration_report, build_review_queue
 from .scoring import score_candidate
+from .cloud_files import MemoryCV, memory_zip
 
 
 ProgressCallback = Callable[[int, int, str], None]
 
 
 def process_paths(
-    cv_paths: List[Path],
+    cv_paths: List[Path | MemoryCV],
     criteria_json: Dict[str, Any],
     api_key: str,
     model: str,
-    output_root: Path,
+    output_root: Path | None,
     thresholds: Dict[str, float] | None = None,
     progress_callback: ProgressCallback | None = None,
     comparison_model: str | None = None,
@@ -37,21 +39,35 @@ def process_paths(
 ) -> Dict[str, Any]:
     if not cv_paths:
         raise ValueError("No CV files supplied.")
+    memory_only = output_root is None
+    if memory_only and use_ocr:
+        raise ValueError("Cloud OCR is disabled because the OCR engine writes temporary files. OCR scanned PDFs locally before uploading.")
+    if memory_only:
+        use_result_cache = False
     timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    outputs_dir = output_root / f"outputs_{timestamp}"
+    outputs_dir = (output_root or Path()) / f"outputs_{timestamp}"
     raw_dir = outputs_dir / "raw_results"
     comparison_dir = outputs_dir / "comparison_results"
     text_dir = outputs_dir / "extracted_text"
-    cache_dir = output_root / ".cv_screener_cache"
-    model_cache_dir = cache_dir / "model_results"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    comparison_dir.mkdir(parents=True, exist_ok=True)
-    text_dir.mkdir(parents=True, exist_ok=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    model_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = output_root / ".cv_screener_cache" if output_root else None
+    model_cache_dir = cache_dir / "model_results" if cache_dir else None
+    if not memory_only:
+        for directory in (raw_dir, comparison_dir, text_dir, cache_dir, model_cache_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    reports: Dict[str, bytes] = {}
+
+    def report_text(path: Path, value: str) -> None:
+        if memory_only:
+            reports[path.relative_to(outputs_dir).as_posix()] = value.encode("utf-8")
+        else:
+            path.write_text(value, encoding="utf-8")
+
+    def report_json(path: Path, value: Any) -> None:
+        report_text(path, json.dumps(value, ensure_ascii=False, indent=2))
 
     criteria_path = outputs_dir / "criteria_used.json"
-    criteria_path.write_text(json.dumps(criteria_json, ensure_ascii=False, indent=2), encoding="utf-8")
+    report_json(criteria_path, criteria_json)
 
     results: List[Dict[str, Any]] = []
     errors: List[Dict[str, str]] = []
@@ -63,9 +79,10 @@ def process_paths(
     total = len(cv_paths)
     for index, path in enumerate(cv_paths, start=1):
         try:
-            extraction = load_or_extract(path, cache_dir, use_ocr=use_ocr)
+            extraction = (extract_from_bytes(path.name, path.read_bytes(), use_ocr=False)
+                          if memory_only else load_or_extract(path, cache_dir, use_ocr=use_ocr))
             text_path = text_dir / f"{safe_stem(path.name)}.txt"
-            text_path.write_text(extraction.text, encoding="utf-8")
+            report_text(text_path, extraction.text)
             for warning in extraction.warnings:
                 extraction_warnings.append({"file": path.name, "warning": warning})
             if extraction.char_count < 80:
@@ -114,23 +131,19 @@ def process_paths(
                 evaluation = compare_scored_results(scored, comparison_scored, model, comparison_model)
                 model_evaluations.append(evaluation)
                 scored["model_comparison"] = evaluation
-                (comparison_dir / f"{safe_stem(path.name)}__{safe_stem(comparison_model)}.json").write_text(
-                    json.dumps(comparison_scored, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
+                report_json(comparison_dir / f"{safe_stem(path.name)}__{safe_stem(comparison_model)}.json", comparison_scored)
 
             results.append(scored)
-            (raw_dir / f"{safe_stem(path.name)}.json").write_text(
-                json.dumps(scored, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            report_json(raw_dir / f"{safe_stem(path.name)}.json", scored)
         except Exception as exc:
-            errors.append({"file": path.name, "error": str(exc)})
+            # Provider exception bodies can contain submitted CV text.
+            message = f"{type(exc).__name__}: extraction or assessment failed; check the file and API settings." if memory_only else str(exc)
+            errors.append({"file": path.name, "error": message})
         finally:
             if progress_callback:
                 progress_callback(index, total, path.name)
 
-    if not results:
+    if not results and not memory_only:
         raise RuntimeError("No CVs were processed successfully. Check skipped files and extraction warnings.")
 
     calibration_rows = build_calibration_report(results)
@@ -152,13 +165,15 @@ def process_paths(
         "reserve_threshold": (thresholds or {}).get("reserve_threshold", 3.0),
         "use_ocr": use_ocr,
         "use_result_cache": use_result_cache,
-        "extraction_cache": str(cache_dir),
+        "extraction_cache": str(cache_dir) if cache_dir else "disabled",
+        "storage_mode": "session_memory" if memory_only else "local_disk",
         **cost_summary,
     }
 
     excel_path = outputs_dir / "screening_results.xlsx"
+    excel_buffer = io.BytesIO() if memory_only else None
     write_workbook(
-        excel_path,
+        excel_buffer if memory_only else excel_path,
         criteria_json=criteria_json,
         results=results,
         errors=errors,
@@ -175,25 +190,32 @@ def process_paths(
 
     manifest = {
         **run_settings,
-        "outputs_dir": str(outputs_dir),
-        "excel_path": str(excel_path),
-        "criteria_path": str(criteria_path),
+        "outputs_dir": "download_only" if memory_only else str(outputs_dir),
+        "excel_path": "screening_results.xlsx" if memory_only else str(excel_path),
+        "criteria_path": "criteria_used.json" if memory_only else str(criteria_path),
         "review_queue_count": len(review_queue),
         "calibration_flag_count": sum(1 for row in calibration_rows if row.get("flags")),
         "model_evaluation_count": len(model_evaluations),
     }
-    write_json(outputs_dir / "run_manifest.json", manifest)
-    write_json(outputs_dir / "results.json", results)
-    write_json(outputs_dir / "review_queue.json", review_queue)
-    write_json(outputs_dir / "calibration_report.json", calibration_rows)
-    write_json(outputs_dir / "model_evaluation.json", model_evaluations)
-    write_json(outputs_dir / "cost_records.json", cost_records)
-    write_json(outputs_dir / "cost_preview.json", cost_preview or {})
+    report_json(outputs_dir / "run_manifest.json", manifest)
+    report_json(outputs_dir / "results.json", results)
+    report_json(outputs_dir / "review_queue.json", review_queue)
+    report_json(outputs_dir / "calibration_report.json", calibration_rows)
+    report_json(outputs_dir / "model_evaluation.json", model_evaluations)
+    report_json(outputs_dir / "cost_records.json", cost_records)
+    report_json(outputs_dir / "cost_preview.json", cost_preview or {})
+    report_json(outputs_dir / "skipped_files.json", errors)
+    report_json(outputs_dir / "extraction_warnings.json", extraction_warnings)
+    downloads = {}
+    if memory_only:
+        reports["screening_results.xlsx"] = excel_buffer.getvalue()
+        downloads = {"excel_download": reports["screening_results.xlsx"], "zip_download": memory_zip(reports)}
 
     return {
-        "outputs_dir": str(outputs_dir),
-        "excel_path": str(excel_path),
-        "criteria_snapshot_path": str(criteria_path),
+        **downloads,
+        "outputs_dir": manifest["outputs_dir"],
+        "excel_path": manifest["excel_path"],
+        "criteria_snapshot_path": manifest["criteria_path"],
         "processed": len(results),
         "skipped": len(errors),
         "files_total": total,
@@ -251,13 +273,13 @@ def load_or_screen(
     api_key: str,
     model: str,
     reasoning_effort: str,
-    cache_dir: Path,
+    cache_dir: Path | None,
     use_result_cache: bool,
     stage: str,
 ) -> Dict[str, Any]:
     key = model_cache_key(extraction.sha256, criteria_hash, model, reasoning_effort, stage)
-    cache_path = cache_dir / f"{key}.json"
-    if use_result_cache and cache_path.exists():
+    cache_path = cache_dir / f"{key}.json" if cache_dir else None
+    if use_result_cache and cache_path is not None and cache_path.exists():
         cached = json.loads(cache_path.read_text(encoding="utf-8"))
         cached["cached"] = True
         return cached
@@ -273,7 +295,7 @@ def load_or_screen(
     payload["cached"] = False
     payload["stage"] = stage
     payload["cache_key"] = key
-    if use_result_cache:
+    if use_result_cache and cache_path is not None:
         write_json(cache_path, payload)
     return payload
 

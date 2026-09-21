@@ -18,9 +18,17 @@ The default is browser uploads and downloads. No desktop paths need to be config
 
 A cloud server cannot access `C:\Users\...`, a mapped drive, or your local OneDrive folder by receiving its path. Direct access to online OneDrive/SharePoint would require a separate authenticated Microsoft Graph integration; this version uses browser uploads.
 
-Uploads and caches use a separate temporary directory for each session. Uploaded working copies are removed after processing, including failed runs. Completed reports are held in session memory for download, and the ZIP contains only that run's reports, not the API key or cache. Filenames are normalized and duplicates disambiguated to prevent files overwriting one another. The existing browser upload limit applies per file (200 MB by default); smaller batches reduce cloud memory use.
+Cloud runs process uploaded bytes directly in memory. The app does not write uploaded CVs, extracted text, JSON, Excel, ZIP files, or model caches to the server filesystem. Even Excel worksheet XML is generated in memory. The ZIP contains that run's Excel, JSON, extracted text, and skipped-file reports; it never contains the API key. Download it to save these files on your computer or synced OneDrive folder. Filenames are normalized and duplicates disambiguated. The browser upload limit is 200 MB per file by default; smaller batches reduce cloud memory use.
 
-Use **Clear session files and results** to remove temporary caches and current results. This does not remove downloads already saved to your device, or locally saved reports in desktop mode. Refreshing, closing, or losing the session can lose results; cloud storage is not a permanent archive. Temporary directories are also cleaned up when their session object is released, rather than immediately when a browser disconnects.
+Use **Clear CVs, results and session** after downloading to reset session data, uploads, criteria and the entered API key. It does not remove files already downloaded to your device. Upload widgets reset after each run (including failures); results remain in session memory for review and download until cleared, replaced, or the session expires. Streamlit manages disconnected-session and download-buffer cleanup; closing the browser is not a guarantee of immediate memory erasure. Reports are not automatically saved to your computer: you must use the download buttons.
+
+Cloud result caching and OCR are disabled. The existing OCR engine creates temporary files, so scanned PDFs must be made searchable using OCR on your computer before upload. OCR and disk caching remain available in explicitly enabled desktop mode. With no app cache in cloud mode, rerunning a batch makes new paid API calls.
+
+After deployment, reboot the app. On Linux, startup removes the previous app's known `niras_session_*` and `niras_cv_uploads_*` temporary directories and generated `outputs/outputs_*` and `outputs/.cv_screener_cache` directories. If removal fails, screening is blocked. This is not a deletion guarantee for infrastructure backups, unknown older locations, or copies already sent to OpenAI.
+
+### Online processing boundary
+
+CV data still passes through Streamlit server memory and OpenAI. Every Responses API request sets `store=False`, including compatibility retries. This disables stored API responses; it does not enable account-level Zero Data Retention or override provider abuse-monitoring, prompt-caching, or infrastructure policies. Review [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data) for your account. This implementation prevents application-level CV file persistence, not every form of retention by hosting/API providers. Cloud errors omit raw provider exception bodies to avoid reflecting submitted CV text.
 
 For trusted desktop use only, enable local paths before starting the app in PowerShell:
 
@@ -59,7 +67,7 @@ The workflow has five main stages.
 
 2. CV intake and extraction
 
-   The user selects a folder of CVs or uploads files. The app supports `.pdf`, `.docx`, `.txt`, and `.md`. PDF extraction uses embedded text where available. DOCX extraction reads paragraphs and table text. Optional OCR can be enabled for scanned PDFs if the OCR dependencies and Tesseract are installed.
+   The user uploads files, or selects a folder in desktop mode. The app supports `.pdf`, `.docx`, `.txt`, and `.md`. PDF extraction uses embedded text where available. DOCX extraction reads paragraphs and table text. Optional OCR is available only in desktop mode; cloud users must OCR scans locally before upload.
 
 3. Model assessment
 
@@ -82,7 +90,7 @@ The workflow has five main stages.
 - Optional comparison-model run for calibration or higher-risk batches.
 - Pre-run model and cost preview before pressing `Run Screening`.
 - Post-run cost dashboard using API token usage where available.
-- Local result caching to reduce repeat model calls for unchanged inputs.
+- Optional result caching in desktop mode only; cloud runs never use disk or model-result caches.
 - Extraction warnings for files with little or no usable text.
 - Review queue for borderline or uncertain results.
 - Calibration report showing scoring spread and variation by criterion.
@@ -239,7 +247,7 @@ You can also paste the key directly into the OpenAI Setup panel in the app.
 
 ## Optional OCR Setup
 
-OCR is only needed for scanned or image-only PDFs. Install the optional Python packages with:
+OCR is only needed for scanned or image-only PDFs and is disabled in cloud mode. For desktop use, install the optional Python packages with:
 
 ```powershell
 pip install -r requirements-ocr.txt
@@ -269,7 +277,7 @@ Typical use:
 
 ## Outputs
 
-Each run creates a timestamped report folder. Browser mode packages it for download and removes the temporary report folder; desktop mode retains it under the selected output directory.
+Cloud runs generate all reports in memory for download, without creating a report folder on the server. Desktop mode creates a timestamped report folder under the selected local output directory.
 
 Main workbook:
 

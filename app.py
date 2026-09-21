@@ -4,7 +4,6 @@ import json
 import os
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -39,10 +38,16 @@ from niras_cv_screener.model_config import (
     reasoning_efforts_for_model,
 )
 from niras_cv_screener.workflow import process_paths
-from niras_cv_screener.cloud_files import save_uploads, results_zip
+from niras_cv_screener.cloud_files import save_uploads, results_zip, memory_uploads, remove_legacy_cloud_files
 
 # Opt in only on a trusted local machine; hosted users use browser transfers.
 LOCAL_FILES = os.getenv("NIRAS_ALLOW_LOCAL_PATHS", "").lower() == "true"
+
+
+@st.cache_resource
+def clean_previous_cloud_storage() -> bool:
+    # Cache only a boolean, never CVs or reports. Cloud runs on Linux.
+    return remove_legacy_cloud_files(ROOT, Path(tempfile.gettempdir()))
 
 
 st.set_page_config(
@@ -63,8 +68,12 @@ def ensure_state() -> None:
     st.session_state.setdefault("criteria_role_title", "")
     st.session_state.setdefault("api_key", os.getenv("OPENAI_API_KEY", ""))
     st.session_state.setdefault("last_run", None)
-    if "workspace" not in st.session_state:
+    st.session_state.setdefault("upload_generation", 0)
+    if LOCAL_FILES and "workspace" not in st.session_state:
         st.session_state.workspace = tempfile.TemporaryDirectory(prefix="niras_session_")
+    if st.session_state.pop("release_uploads", False):
+        st.session_state.pop(f"cv_uploads_{st.session_state.upload_generation}", None)
+        st.session_state.upload_generation += 1
 
 
 def parse_current_criteria() -> None:
@@ -533,6 +542,9 @@ def select_reasoning_effort(label: str, model: str, preferred: str, key: str) ->
 
 
 inject_brand_css()
+if not LOCAL_FILES and sys.platform == "linux" and not clean_previous_cloud_storage():
+    st.error("Earlier app files could not be removed. Recreate the cloud deployment before processing more CVs.")
+    st.stop()
 ensure_state()
 render_brand_header()
 
@@ -582,18 +594,21 @@ with st.sidebar:
 
     interview_threshold = st.slider("Interview threshold", 0.0, 5.0, 3.5, 0.1)
     reserve_threshold = st.slider("Reserve threshold", 0.0, 5.0, 3.0, 0.1)
-    use_result_cache = st.checkbox("Reuse cached model results", value=True)
-    use_ocr = st.checkbox("Try OCR fallback if installed", value=False)
-    output_dir_text = str(Path(st.session_state.workspace.name) / "outputs")
+    use_result_cache = False
+    use_ocr = False
+    output_dir_text = ""
     if LOCAL_FILES:
+        use_result_cache = st.checkbox("Reuse cached model results", value=True)
+        use_ocr = st.checkbox("Try OCR fallback if installed", value=False)
         output_dir_text = st.text_input("Output folder on this computer", value=str(ROOT / "outputs"))
     else:
-        st.caption("Results are temporary. Download them before closing or refreshing this session.")
-    if st.button("Clear session files and results"):
-        st.session_state.workspace.cleanup()
-        del st.session_state["workspace"]
-        st.session_state.last_run = None
-        st.session_state.pop("cv_uploads", None)
+        st.caption("CVs and reports stay in session memory. Server file storage, result caching, and cloud OCR are disabled. Download reports before clearing this session.")
+    if st.button("Clear CVs, results and session"):
+        next_generation = st.session_state.upload_generation + 1
+        if "workspace" in st.session_state:
+            st.session_state.workspace.cleanup()
+        st.session_state.clear()
+        st.session_state.upload_generation = next_generation
         st.rerun()
 
 criteria_tab, cv_tab, run_tab, results_tab = st.tabs(["1. Criteria", "2. CVs", "3. Run", "4. Results"])
@@ -665,9 +680,11 @@ with cv_tab:
             "Upload CV files",
             type=[ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS],
             accept_multiple_files=True,
-            key="cv_uploads",
+            key=f"cv_uploads_{st.session_state.upload_generation}",
         )
         st.caption("Select CVs from your computer or synced OneDrive folder. OneDrive files must be downloaded to your device first. Cloud hosting cannot read a pasted desktop folder path.")
+        if not LOCAL_FILES:
+            st.info("Scanned PDFs need OCR on your computer before upload. CV text is sent to OpenAI for scoring; its data-retention policy still applies.")
         if uploaded:
             st.write(f"Ready to screen {len(uploaded)} uploaded files.")
 
@@ -706,6 +723,7 @@ with run_tab:
     if run_clicked:
         upload_temp = None
         result = None
+        st.session_state.last_run = None
         try:
             criteria = rows_to_criteria(
                 st.session_state.criteria_rows,
@@ -722,8 +740,11 @@ with run_tab:
             else:
                 if not uploaded:
                     raise ValueError("No CV files uploaded.")
-                upload_temp = tempfile.TemporaryDirectory(dir=st.session_state.workspace.name, prefix="uploads_")
-                paths_to_process = save_uploads(uploaded, Path(upload_temp.name))
+                if LOCAL_FILES:
+                    upload_temp = tempfile.TemporaryDirectory(dir=st.session_state.workspace.name, prefix="uploads_")
+                    paths_to_process = save_uploads(uploaded, Path(upload_temp.name))
+                else:
+                    paths_to_process = memory_uploads(uploaded)
 
             progress = st.progress(0)
             status = st.empty()
@@ -732,7 +753,7 @@ with run_tab:
                 progress.progress(done / max(total, 1))
                 status.write(f"Processed {done} of {total}: {name}")
 
-            output_dir = Path(output_dir_text).expanduser()
+            output_dir = Path(output_dir_text).expanduser() if LOCAL_FILES else None
             with st.spinner("Screening CVs..."):
                 result = process_paths(
                     cv_paths=paths_to_process,
@@ -754,29 +775,31 @@ with run_tab:
                     cost_preview=cost_preview,
                 )
 
-            result["excel_download"] = Path(result["excel_path"]).read_bytes()
-            result["zip_download"] = results_zip(Path(result["outputs_dir"]))
+            if LOCAL_FILES:
+                result["excel_download"] = Path(result["excel_path"]).read_bytes()
+                result["zip_download"] = results_zip(Path(result["outputs_dir"]))
             st.session_state.last_run = result
             st.success(f"Screening complete: {result['processed']} processed, {result['skipped']} skipped. Downloads are in Results.")
             if LOCAL_FILES:
                 st.caption(f"Saved to: {result['outputs_dir']}")
         except Exception as exc:
-            st.error(str(exc))
+            message = str(exc) if LOCAL_FILES else "Screening could not finish. Check the criteria, files and API settings, then upload the CVs again."
+            st.session_state.run_error = message
         finally:
             if upload_temp is not None:
                 upload_temp.cleanup()
             if not LOCAL_FILES:
-                # Keep only session caches on disk; finished reports live in session memory.
-                output_root = Path(st.session_state.workspace.name) / "outputs"
-                for run_directory in output_root.glob("outputs_*"):
-                    if run_directory.is_dir():
-                        shutil.rmtree(run_directory)
+                st.session_state.release_uploads = True
+        st.rerun()
+    if st.session_state.get("run_error"):
+        st.error(st.session_state.pop("run_error"))
 
 with results_tab:
     result = st.session_state.last_run
     if not result:
         st.info("Run a screening batch to see results here.")
     else:
+        st.caption("Download the ZIP to save all JSON reports, extracted text and Excel locally. Clear the session after downloading.")
         summary_rows = []
         for item in result.get("results", []):
             summary = item.get("summary", {})

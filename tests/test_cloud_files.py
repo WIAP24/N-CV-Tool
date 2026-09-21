@@ -6,7 +6,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from niras_cv_screener.cloud_files import save_uploads, results_zip
+from niras_cv_screener.cloud_files import save_uploads, results_zip, remove_legacy_cloud_files
 
 
 def upload(name, content=b"synthetic CV"):
@@ -16,6 +16,23 @@ def upload(name, content=b"synthetic CV"):
 
 
 class CloudFilesTests(unittest.TestCase):
+    def test_legacy_cleanup_is_scoped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app = root / "app"
+            old_upload = root / "niras_session_example"
+            old_output = app / "outputs" / "outputs_example"
+            old_cache = app / "outputs" / ".cv_screener_cache"
+            unrelated = root / "other_app"
+            for directory in (old_upload, old_output, old_cache, unrelated):
+                directory.mkdir(parents=True)
+                (directory / "synthetic.txt").write_text("synthetic data")
+            self.assertTrue(remove_legacy_cloud_files(app, root))
+            self.assertFalse(old_upload.exists())
+            self.assertFalse(old_output.exists())
+            self.assertFalse(old_cache.exists())
+            self.assertTrue((unrelated / "synthetic.txt").exists())
+
     def test_paths_and_collisions(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

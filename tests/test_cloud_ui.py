@@ -12,19 +12,18 @@ sys.path.insert(0, str(ROOT / "src"))
 
 
 class CloudUITests(unittest.TestCase):
-    def test_run_exports_and_cleans_temporary_files(self):
+    def test_run_uses_memory_only(self):
         uploaded = io.BytesIO(b"Synthetic CV for testing only")
         uploaded.name = "example.txt"
         observed = []
 
         def fake_process(**kwargs):
             observed.extend(kwargs["cv_paths"])
-            self.assertTrue(observed[0].is_file())
-            reports = kwargs["output_root"] / "outputs_test"
-            reports.mkdir(parents=True)
-            excel = reports / "screening_results.xlsx"
-            excel.write_bytes(b"synthetic workbook")
-            return {"outputs_dir": str(reports), "excel_path": str(excel),
+            self.assertEqual(observed[0].read_bytes(), b"Synthetic CV for testing only")
+            self.assertIsNone(kwargs["output_root"])
+            self.assertFalse(kwargs["use_result_cache"])
+            self.assertFalse(kwargs["use_ocr"])
+            return {"excel_download": b"synthetic workbook", "zip_download": b"synthetic archive",
                     "processed": 1, "skipped": 0, "results": []}
 
         with patch.dict(os.environ, {"NIRAS_ALLOW_LOCAL_PATHS": "", "OPENAI_API_KEY": "test-only"}), \
@@ -35,9 +34,8 @@ class CloudUITests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(app.session_state.last_run["excel_download"], b"synthetic workbook")
             self.assertEqual(len(app.get("download_button")), 2)
-            self.assertFalse(observed[0].exists())
-            self.assertFalse(Path(app.session_state.last_run["outputs_dir"]).exists())
-            app.session_state.workspace.cleanup()
+            self.assertNotIn("workspace", app.session_state)
+            self.assertEqual(app.session_state.upload_generation, 1)
 
     def test_cloud_defaults_and_downloads(self):
         with patch.dict(os.environ, {"NIRAS_ALLOW_LOCAL_PATHS": "", "OPENAI_API_KEY": ""}):
@@ -53,12 +51,12 @@ class CloudUITests(unittest.TestCase):
             app.run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.get("download_button")), 2)
-            workspace = Path(app.session_state.workspace.name)
-            next(item for item in app.button if item.label == "Clear session files and results").click().run()
+            self.assertNotIn("workspace", app.session_state)
+            self.assertFalse(any("OCR" in item.label or "cache" in item.label for item in app.checkbox))
+            next(item for item in app.button if item.label == "Clear CVs, results and session").click().run()
             self.assertFalse(app.exception)
             self.assertIsNone(app.session_state.last_run)
-            self.assertFalse(workspace.exists())
-            app.session_state.workspace.cleanup()
+            self.assertEqual(len(app.get("download_button")), 0)
 
     def test_local_mode_retains_folder_controls(self):
         with patch.dict(os.environ, {"NIRAS_ALLOW_LOCAL_PATHS": "true"}):

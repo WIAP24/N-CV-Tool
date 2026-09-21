@@ -97,6 +97,7 @@ def screen_cv_with_metadata(
 
     request: Dict[str, Any] = {
         "model": model,
+        "store": False,
         "temperature": 0,
         "seed": 12345,
         "instructions": instructions,

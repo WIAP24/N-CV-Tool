@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 from copy import copy
 from pathlib import Path
 from typing import Any, Dict, List
@@ -11,7 +13,7 @@ from .criteria import criteria_to_rows
 
 
 def write_workbook(
-    out_path: Path,
+    out_path: Path | BytesIO,
     criteria_json: Dict[str, Any],
     results: List[Dict[str, Any]],
     errors: List[Dict[str, str]],
@@ -232,8 +234,33 @@ def write_workbook(
         for cell in sheet[1]:
             cell.font = Font(bold=True)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out_path)
+    if isinstance(out_path, BytesIO):
+        save_workbook_in_memory(wb, out_path)
+    else:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(out_path)
+
+
+def save_workbook_in_memory(workbook, buffer: BytesIO) -> None:
+    from openpyxl.writer.excel import ExcelWriter
+    from openpyxl.worksheet._writer import WorksheetWriter
+    from openpyxl.drawing.spreadsheet_drawing import SpreadsheetDrawing
+
+    class MemoryExcelWriter(ExcelWriter):
+        # openpyxl's default writer creates temporary XML files even for BytesIO.
+        def write_worksheet(self, worksheet):
+            worksheet._drawing = SpreadsheetDrawing()
+            worksheet._drawing.charts = worksheet._charts
+            worksheet._drawing.images = worksheet._images
+            with BytesIO() as xml:
+                writer = WorksheetWriter(worksheet, out=xml)
+                writer.write()
+                worksheet._rels = writer._rels
+                self._archive.writestr(worksheet.path[1:], xml.getvalue())
+            self.manifest.append(worksheet)
+
+    with ZipFile(buffer, "w", ZIP_DEFLATED, allowZip64=True) as archive:
+        MemoryExcelWriter(workbook, archive).save()
 
 
 def write_rows_sheet(wb: Any, title: str, rows: List[Dict[str, Any]], headers: List[str], fill: Any, widths: List[int]) -> Any:
